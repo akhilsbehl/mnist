@@ -1,5 +1,6 @@
 require 'nn'
 require 'optim'
+w_init = require 'weight-init'
 
 local train_data_path = '../data/train_32x32.t7'
 local test_data_path = '../data/test_32x32.t7'
@@ -23,49 +24,52 @@ derpNet:add(nn.Linear(400, 100))
 
 derpNet:add(nn.LogSoftMax())
 
+-- local herpNet = w_init(derpNet, 'kaiming_caffe')
+-- local herpNet = w_init(derpNet, 'xavier_caffe')
+local herpNet = derpNet
+
 -- 2. The criterion
 local criterion = nn.ClassNLLCriterion()
 
 -- 3. The trainer
-local params, gradParams = derpNet:getParameters()
+local params, gradParams = herpNet:getParameters()
 local optimState = {learningRate = 1e-3}
 
 -- 4. The training
-local nEpochs = 4
-local batchSize = 64
+local nEpochs = 12
+local batchSize = 1000
+local trainSize = train_data['data']:size(1)
+assert(trainSize % batchSize == 0,
+       'Use a batch size that cleanly divides training size.')
+local nBatches = trainSize / batchSize
+local batchInputs = torch.Tensor(batchSize, 1, 32, 32)
+local batchResponse = torch.Tensor(batchSize)
 
 for epoch = 1, nEpochs do
 
    local shuffle = torch.randperm(train_data['data']:size(1))
 
-   local batch = 1
-
-   for batchOffset = 1, train_data['data']:size(1), batchSize do
-
-      local batchInputs = torch.Tensor(batchSize, 1, 32, 32)
-      local batchResponse = torch.Tensor(batchSize)
+   for batch = 1, nBatches do
 
       for i = 1, batchSize do
-         local ind = shuffle[batchOffset + i]
-         batchInputs[i]:copy(train_data['data'][ind])
-         batchResponse[i] = train_data['labels'][ind]
+         local case = (batch - 1) * batchSize + i
+         local shuffled = shuffle[case]
+         batchInputs[i]:copy(train_data['data'][shuffled])
+         batchResponse[i] = train_data['labels'][shuffled]
       end
 
       local function evaluateBatch(params)
          gradParams:zero()
-         local batchEstimate = derpNet:forward(batchInputs)
+         local batchEstimate = herpNet:forward(batchInputs)
          local batchLoss = criterion:forward(batchEstimate, batchResponse)
          local nablaLoss = criterion:backward(batchEstimate, batchResponse)
-         derpNet:backward(batchInputs, nablaLoss)
+         herpNet:backward(batchInputs, nablaLoss)
          print('Finished epoch: ' .. epoch .. ', batch: ' ..
                   batch .. ', with loss: ' .. batchLoss)
          return batchLoss, gradParams
       end
 
       optim.sgd(evaluateBatch, params, optimState)
-
-      batch = batch + 1
-      batchOffset = batchOffset + batchSize
 
    end
 
