@@ -1,12 +1,48 @@
+require 'cunn'
+require 'cutorch'
 require 'nn'
 require 'optim'
 w_init = require 'weight-init'
 
+local use_cuda = true
+
+local function tablep (this)
+   return type(this) == 'table'
+end
+
+local function cudablep (this)
+   if getmetatable(this) then
+      return this.cuda ~= nil
+   end
+end
+
+local function cudafy (this)
+   return cudablep(this) and this:cuda() or this
+end
+
+local function map (fun, over)
+   local mapped = {}
+   for key, elem in pairs(over) do
+      mapped[key] = fun(elem)
+   end
+   return mapped
+end
+
+local function localize (this, iterate)
+   if use_cuda then
+      return (iterate and tablep(this)) and
+         map(cudafy, this) or
+         cudafy(this)
+   else
+      return this
+   end
+end
+
 local train_data_path = '../data/train_32x32.t7'
 local test_data_path = '../data/test_32x32.t7'
 
-local train_data = torch.load(train_data_path, 'ascii')
-local test_data = torch.load(test_data_path, 'ascii')
+local train_data = localize(torch.load(train_data_path, 'ascii'), 'iterate')
+local test_data = localize(torch.load(test_data_path, 'ascii'), 'iterate')
 
 -- 1. The net
 local derpNet = nn.Sequential()
@@ -24,26 +60,25 @@ derpNet:add(nn.Linear(400, 100))
 
 derpNet:add(nn.LogSoftMax())
 
--- local herpNet = w_init(derpNet, 'kaiming_caffe')
--- local herpNet = w_init(derpNet, 'xavier_caffe')
-local herpNet = derpNet
+-- local herpNet = localize(w_init(derpNet, 'xavier_caffe'))
+local herpNet = localize(derpNet)
 
 -- 2. The criterion
-local criterion = nn.ClassNLLCriterion()
+local criterion = localize(nn.ClassNLLCriterion())
 
 -- 3. The trainer
 local params, gradParams = herpNet:getParameters()
 local optimState = {learningRate = 1e-3}
 
 -- 4. The training
-local nEpochs = 12
+local nEpochs = 1
 local batchSize = 1000
 local trainSize = train_data['data']:size(1)
 assert(trainSize % batchSize == 0,
        'Use a batch size that cleanly divides training size.')
 local nBatches = trainSize / batchSize
-local batchInputs = torch.Tensor(batchSize, 1, 32, 32)
-local batchResponse = torch.Tensor(batchSize)
+local batchInputs = localize(torch.Tensor(batchSize, 1, 32, 32))
+local batchResponse = localize(torch.Tensor(batchSize))
 
 for epoch = 1, nEpochs do
 
