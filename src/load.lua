@@ -2,7 +2,6 @@ require 'cunn'
 require 'cutorch'
 require 'nn'
 require 'optim'
-w_init = require 'weight-init'
 
 local use_cuda = true
 
@@ -60,7 +59,6 @@ derpNet:add(nn.Linear(400, 100))
 
 derpNet:add(nn.LogSoftMax())
 
--- local herpNet = localize(w_init(derpNet, 'xavier_caffe'))
 local herpNet = localize(derpNet)
 
 -- 2. The criterion
