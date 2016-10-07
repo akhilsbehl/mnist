@@ -3,6 +3,17 @@ require 'cutorch'
 require 'nn'
 require 'optim'
 
+--[[
+
+TODO:
+   1. Weight initialization
+   2. Early stopping
+   3. Dropout
+   4. Cross validation
+   5. Layer tweaking
+
+--]]
+
 local use_cuda = true
 
 local function tablep (this)
