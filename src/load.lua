@@ -1,5 +1,3 @@
-require 'cunn'
-require 'cutorch'
 require 'nn'
 require 'optim'
 
@@ -14,7 +12,12 @@ TODO:
 
 --]]
 
-local use_cuda = true
+local use_cuda = false
+
+if use_cuda then
+  require 'cunn'
+  require 'cutorch'
+end
 
 local function tablep (this)
    return type(this) == 'table'
