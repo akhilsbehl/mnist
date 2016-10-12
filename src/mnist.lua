@@ -1,5 +1,6 @@
 require 'nn'
 require 'optim'
+utils = require 'utils'
 
 --[[
 
@@ -12,40 +13,18 @@ TODO:
 
 --]]
 
-local use_cuda = false
+local use_cuda = true
 
 if use_cuda then
   require 'cunn'
   require 'cutorch'
 end
 
-local function tablep (this)
-   return type(this) == 'table'
-end
-
-local function cudablep (this)
-   if getmetatable(this) then
-      return this.cuda ~= nil
-   end
-end
-
-local function cudafy (this)
-   return cudablep(this) and this:cuda() or this
-end
-
-local function map (fun, over)
-   local mapped = {}
-   for key, elem in pairs(over) do
-      mapped[key] = fun(elem)
-   end
-   return mapped
-end
-
 local function localize (this, iterate)
    if use_cuda then
-      return (iterate and tablep(this)) and
-         map(cudafy, this) or
-         cudafy(this)
+      return (iterate and utils.tablep(this)) and
+         utils.map(utils.cudafy, this) or
+         utils.cudafy(this)
    else
       return this
    end
