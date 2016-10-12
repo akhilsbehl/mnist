@@ -22,6 +22,14 @@ local function map (fun, over)
    return mapped
 end
 
+-- Use with caution!
+local function eval_string(s)
+   return loadstring('return ' .. s)()
+end
+
+local function load_data(data_dir)
+end
+
 -- 2. Exports
 
 local exports = {
@@ -29,5 +37,6 @@ local exports = {
    cudablep = cudablep,
    cudafy = cudafy,
    map = map,
+   load_data = load_data,
 }
 return exports

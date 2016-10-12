@@ -1,4 +1,3 @@
-require 'nn'
 require 'optim'
 utils = require 'utils'
 
@@ -13,7 +12,23 @@ TODO:
 
 --]]
 
-local use_cuda = true
+cmd = torch.CmdLine()
+cmd:text()
+cmd:text('Experimenting with MNIST to learn NNs.')
+cmd:text('Example:')
+cmd:text('$> th mnist.lua --cuda true --batch_size 1000')
+cmd:text('Options:')
+cmd:option('--cuda', false, 'Use CUDA?')
+cmd:option('--datadir', '../data', 'Directory to pick data from.')
+cmd:option('--modelpath', 'model.lua', 'Lua file to load the model from.')
+cmd:option('--nepochs', 3, 'Number of epochs to run training for.')
+cmd:option('--batchsize', 1000, 'Number of instances in an SGD mini batch.')
+cmd:option('--sgdparams', {}, 'Params to be passed on to the SGD optimizer.')
+cmd:option('--silent', false, 'Avoid printing to stdout?')
+cmd:text()
+
+options = cmd:parse(arg or {})
+local use_cuda = options.cuda
 
 if use_cuda then
   require 'cunn'
@@ -30,72 +45,56 @@ local function localize (this, iterate)
    end
 end
 
-local train_data_path = '../data/train_32x32.t7'
-local test_data_path = '../data/test_32x32.t7'
-
-local train_data = localize(torch.load(train_data_path, 'ascii'), 'iterate')
-local test_data = localize(torch.load(test_data_path, 'ascii'), 'iterate')
-
 -- 1. The net
-local derpNet = nn.Sequential()
+local model = dofile(options.modelpath)
+local net = localize(model.net)
+local criterion = localize(model.criterion)
 
-derpNet:add(nn.SpatialConvolution(1, 8, 5, 5))
-derpNet:add(nn.ReLU())
-derpNet:add(nn.SpatialMaxPooling(2, 2, 2, 2))
-
-derpNet:add(nn.SpatialConvolution(8, 16, 5, 5))
-derpNet:add(nn.ReLU())
-derpNet:add(nn.SpatialMaxPooling(2, 2, 2, 2))
-
-derpNet:add(nn.Reshape(400))
-derpNet:add(nn.Linear(400, 100))
-
-derpNet:add(nn.LogSoftMax())
-
-local herpNet = localize(derpNet)
-
--- 2. The criterion
-local criterion = localize(nn.ClassNLLCriterion())
+-- 2. The data
+local dataset = utils.load_data(options.datadir)
+local train = localize(dataset.train, 'iterate')
+local validation = localize(dataset.validation, 'iterate')
+local test = localize(dataset.test, 'iterate')
 
 -- 3. The trainer
-local params, gradParams = herpNet:getParameters()
-local optimState = {learningRate = 1e-3}
+local params, grad_params = net:getParameters()
+local optim_state = {learningRate = 1e-3}
 
 -- 4. The training
-local nEpochs = 1
-local batchSize = 1000
-local trainSize = train_data['data']:size(1)
-assert(trainSize % batchSize == 0,
+local n_epochs = 1
+local batch_size = 1000
+local train_size = train_data['data']:size(1)
+assert(train_size % batch_size == 0,
        'Use a batch size that cleanly divides training size.')
-local nBatches = trainSize / batchSize
-local batchInputs = localize(torch.Tensor(batchSize, 1, 32, 32))
-local batchResponse = localize(torch.Tensor(batchSize))
+local n_batches = train_size / batch_size
+local batchInputs = localize(torch.Tensor(batch_size, 1, 32, 32))
+local batchResponse = localize(torch.Tensor(batch_size))
 
-for epoch = 1, nEpochs do
+for epoch = 1, n_epochs do
 
    local shuffle = torch.randperm(train_data['data']:size(1))
 
-   for batch = 1, nBatches do
+   for batch = 1, n_batches do
 
-      for i = 1, batchSize do
-         local case = (batch - 1) * batchSize + i
+      for i = 1, batch_size do
+         local case = (batch - 1) * batch_size + i
          local shuffled = shuffle[case]
          batchInputs[i]:copy(train_data['data'][shuffled])
          batchResponse[i] = train_data['labels'][shuffled]
       end
 
-      local function evaluateBatch(params)
-         gradParams:zero()
-         local batchEstimate = herpNet:forward(batchInputs)
+      local function evaluate_batch(params)
+         grad_params:zero()
+         local batchEstimate = net:forward(batchInputs)
          local batchLoss = criterion:forward(batchEstimate, batchResponse)
          local nablaLoss = criterion:backward(batchEstimate, batchResponse)
-         herpNet:backward(batchInputs, nablaLoss)
+         net:backward(batchInputs, nablaLoss)
          print('Finished epoch: ' .. epoch .. ', batch: ' ..
                   batch .. ', with loss: ' .. batchLoss)
-         return batchLoss, gradParams
+         return batchLoss, grad_params
       end
 
-      optim.sgd(evaluateBatch, params, optimState)
+      optim.sgd(evaluate_batch, params, optim_state)
 
    end
 
