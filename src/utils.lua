@@ -27,44 +27,60 @@ local function eval_string(s)
    return loadstring('return ' .. s)()
 end
 
-local function load_data(dataset, validation_ratio)
-   local loaders = {
-      mnist = load_mnist,
-      -- cifar10 = load_cifar10,
-   }
-   local train_, test = loaders[dataset]()
-   local train, validation = make_validation(train_, validation_ratio)
-   return {
-      train = train,
-      validation = validation,
-      test = test,
-   }
-
+local function load_mnist_part(part)
+   local path = '../data/mnist/' .. part .. '_32x32.t7'
+   local data = torch.load(path, 'ascii')
+   data['records'] = data['data']
+   data.data = nil
+   return data
 end
 
-local function load_mnist()
-   local train = torch.load(data_dir .. '/train.t7', 'ascii')
-   train['records'] = train['data']
-   train.data = nil
-   local test = torch.load(data_dir .. '/test.t7', 'ascii')
-   test['records'] = test['data']
-   test.data = nil
-   return train, test
+local function load_mnist(part)
+   if part == 'test' or part == 'train' then
+      return load_mnist_part(part)
+   else
+      return {
+         train = load_mnist_part('train'),
+         test = load_mnist_part('test'),
+      }
+   end
 end
 
-local function make_validation(train, validation_ratio)
-   local train_size = train['labels']:size(1)
-   local validation_size = math.ceil(validation_ratio * train_size)
-   local validation_indices =
-      torch.randperm(train_size)[{ {1, validation_size} }]
+local function load_data(set, part)
+   local data = nil
+   if set == 'mnist' then
+      data = load_mnist(part)
+   -- elseif set == 'cifar10' then  -- Add more here.
+   --    data = load_cifar10(part)
+   else
+      error('Unknown dataset!')
+   end
+   return data
+end
+
+local function make_validation(train_full, validation_ratio)
+   local train_full_size = train_full['labels']:size(1)
+   local validation_size = math.ceil(validation_ratio * train_full_size)
+   local train_size = train_full_size - validation_size
+   local shuffle = torch.randperm(train_full_size):long()
+   local validation_indices = shuffle[{ {1, validation_size} }]
+   local train_indices = shuffle[{ {validation_size + 1, train_full_size} }]
+   train, validation = {}, {}
+   for set, data in pairs(train_full) do
+      train[set] = data:index(1, train_indices)
+      validation[set] = data:index(1, validation_indices)
+   end
+   return train, validation
+end
 
 -- 2. Exports
 
-local exports = {
+return {
    tablep = tablep,
    cudablep = cudablep,
    cudafy = cudafy,
    map = map,
+   eval_string = eval_string,
    load_data = load_data,
+   make_validation = make_validation,
 }
-return exports

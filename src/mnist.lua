@@ -20,8 +20,7 @@ net:add(nn.LogSoftMax())
 local criterion = nn.ClassNLLCriterion()
 
 -- 3. Exports
-exports = {
+return {
    net = net,
    criterion = criterion,
 }
-return exports
