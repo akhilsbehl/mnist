@@ -24,13 +24,13 @@ cmd:option('--modelpath', 'mnist.lua', 'Lua file to load the model from.')
 cmd:option('--epochs', 3, 'Number of epochs to run training for.')
 cmd:option('--batchsize', 128, 'Number of instances in an SGD mini batch.')
 cmd:option('--optparams', '{}', 'Params to be passed on to the optimizer.')
+cmd:option('--silent', false, 'Params to be passed on to the optimizer.')
 cmd:text()
 
 options = cmd:parse(arg or {})
 
 if options.cuda then
   require 'cunn'
-  require 'cutorch'
 end
 
 local function localize (this, iterate)
@@ -90,7 +90,9 @@ for epoch = 1, options.epochs do
          local batch_loss = criterion:forward(batch_estimate, batch_labels)
          local nabla_loss = criterion:backward(batch_estimate, batch_labels)
          net:backward(batch_records, nabla_loss)
-         print(epoch .. ',' .. batch .. ',' .. batch_loss)
+         if not options.silent then
+            print(epoch .. ',' .. batch .. ',' .. batch_loss)
+         end
          return batch_loss, grad_params
       end
 
