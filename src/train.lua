@@ -21,7 +21,7 @@ cmd:option('--cuda', false, 'Use CUDA?')
 cmd:option('--dataset', 'mnist', 'Dataset to load.')
 cmd:option('--modelpath', 'mnist.lua', 'Lua file to load the model from.')
 cmd:option('--epochs', 100, 'Number of epochs to run training for.')
-cmd:option('--valprop', 0.2, 'Proportion of train to use for validation.')
+cmd:option('--kfolds', 5, 'Proportion of train to use for validation.')
 cmd:option('--batchsize', 100, 'Number of instances in an SGD mini batch.')
 cmd:option('--optparams', '{}', 'Params to be passed on to the optimizer.')
 cmd:option('--silent', false, 'Suppress logging to stdout?')
@@ -36,6 +36,8 @@ if options.help then
    table.print(options)
    os.exit()
 end
+
+assert(options.kfolds > 1)
 
 if options.cuda then
   require 'cunn'
@@ -60,30 +62,23 @@ local confusion = localize(model.confusion)
 -- 2. The data
 local dataset = utils.load_data(options.dataset, 'train')
 dataset = localize(dataset, 'iterate')
+dataset_size = dataset['labels']:size(1)
 
 -- 3. The training
+
 local params, grad_params = net:getParameters()
 local optim_state = utils.eval_string(options.optparams)
 
-local validation_size = math.ceil(dataset['records']:size(1) * options.valprop)
-local train_size = dataset['records']:size(1) - validation_size
+local validation_size = math.floor(dataset_size * options.valprop)
+local train_size = dataset_size - validation_size
 local batch_size = options.batchsize
 
--- Let's waste some of the data if it so happens. This is fine when
--- batch sizes are small.
-local train_batches = math.floor(train_size / batch_size)
-local overflow_train = train_size % batch_size
-if overflow_train ~= 0 then
-   print(overflow_train .. ' of ' .. train_size ..
-            ' training records will be unused per epoch.')
-end
+assert(train_size % batch_size == 0)
+assert(validation_size % batch_size == 0)
+assert(dataset_size % options.kfolds == 0)
 
-local validation_batches = math.floor(validation_size / batch_size)
-local overflow_validation = validation_size % batch_size
-if overflow_validation ~= 0 then
-   print(overflow_validation .. ' of ' .. validation_size ..
-            ' validation records will be unused per epoch.')
-end
+local train_batches = train_size / batch_size
+local validation_batches = validation_size / batch_size
 
 local batch_records_storage = dataset['records']:size()
 batch_records_storage[1] = batch_size
@@ -92,6 +87,14 @@ local batch_records = localize(torch.Tensor(batch_records_storage))
 local batch_labels_storage = dataset['labels']:size()
 batch_labels_storage[1] = batch_size
 local batch_labels = localize(torch.Tensor(batch_labels_storage))
+
+local shuffle = torch.randperm(dataset_size)
+local fold_size = dataset_size / options.kfolds
+local fold_indices = {}
+for k = 1, options.kfolds do
+   offset = (k - 1) * fold_size
+   fold_indices[k] = shuffle[{ {offset + 1, offset + fold_size} }]
+end
 
 if not options.skiplog then
    local logpath = '../logs/'      ..
@@ -107,54 +110,49 @@ if not options.skiplog then
    end
 end
 
-for epoch = 1, options.epochs do
+for k = 1, options.kfolds do
+   local train, validation = utils.kth_fold(dataset, fold_indices, k)
+   for epoch = 1, options.epochs do
 
-   local train, validation = utils.make_validation(dataset, options.valprop)
-
-   for batch = 1, train_batches do
-
-      local o = (batch - 1) * batch_size  -- o := batch offset
-      batch_labels:copy(train['labels'][{ {o + 1, o + batch_size} }])
-      batch_records:copy(train['records'][{ {o + 1, o + batch_size} }])
-
-      local function learn_batch(params)
-         grad_params:zero()
-         local batch_estimates = net:forward(batch_records)
-         local batch_loss = criterion:forward(batch_estimates, batch_labels)
-         local nabla_loss = criterion:backward(batch_estimates, batch_labels)
-         net:backward(batch_records, nabla_loss)
-         local info = {
-            timestamp = os.date('%Y-%m-%d %H:%M:%S'),
-            epoch = epoch,
-            batch = batch,
-            loss = batch_loss,
-         }
-         utils.communicate(
-            info, logfile, options.skiplog,
-            options.silent, options.printstep)
-         return batch_loss, grad_params
+      for batch = 1, train_batches do
+         local o = (batch - 1) * batch_size  -- o := batch offset
+         batch_labels:copy(train['labels'][{ {o + 1, o + batch_size} }])
+         batch_records:copy(train['records'][{ {o + 1, o + batch_size} }])
+         local function learn_batch(params)
+            grad_params:zero()
+            local batch_estimates = net:forward(batch_records)
+            local batch_loss = criterion:forward(batch_estimates, batch_labels)
+            local nabla_loss = criterion:backward(batch_estimates, batch_labels)
+            net:backward(batch_records, nabla_loss)
+            local info = {
+               timestamp = os.date('%Y-%m-%d %H:%M:%S'),
+               epoch = epoch,
+               batch = batch,
+               loss = batch_loss,
+            }
+            utils.communicate(
+               info, logfile, options.skiplog,
+               options.silent, options.printstep)
+            return batch_loss, grad_params
+         end
+         optim.sgd(learn_batch, params, optim_state)
       end
 
-      optim.sgd(learn_batch, params, optim_state)
+      confusion:zero()
+      for batch = 1, validation_batches do
+         local o = (batch - 1) * batch_size  -- o := batch offset
+         batch_labels:copy(validation['labels'][{ {o + 1, o + batch_size} }])
+         batch_records:copy(validation['records'][{ {o + 1, o + batch_size} }])
+         local batch_estimates = net:forward(batch_records)
+         confusion:batchAdd(batch_estimates, batch_labels)
+      end
+      confusion:updateValids()
+
+      print('Total accuracy of classifier at completion of epoch ' .. epoch ..
+               ' = ' .. confusion.averageValid * 100 .. '.')
+      print('Mean accuracy across classes at completion of epoch ' .. epoch ..
+               ' = ' .. confusion.totalValid * 100 .. '.')
 
    end
-
-   confusion:zero()
-   for batch = 1, validation_batches do
-
-      local o = (batch - 1) * batch_size  -- o := batch offset
-      batch_labels:copy(validation['labels'][{ {o + 1, o + batch_size} }])
-      batch_records:copy(validation['records'][{ {o + 1, o + batch_size} }])
-
-      local batch_estimates = net:forward(batch_records)
-      confusion:batchAdd(batch_estimates, batch_labels)
-
-   end
-   confusion:updateValids()
-
-   print('Total accuracy of classifier at completion of epoch ' .. epoch ..
-            ' = ' .. confusion.averageValid * 100 .. '.')
-   print('Mean accuracy across classes at completion of epoch ' .. epoch ..
-            ' = ' .. confusion.totalValid * 100 .. '.')
 
 end
