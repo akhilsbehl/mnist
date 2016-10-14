@@ -73,6 +73,36 @@ local function make_validation(train_full, validation_ratio)
    return train, validation
 end
 
+local function makelog(info)
+   return
+      info.timestamp  .. ',' ..
+      info.epoch      .. ',' ..
+      info.batch      .. ',' ..
+      info.loss      .. '\n'
+end
+
+local function makemsg(info)
+   return
+      '['.. info.timestamp .. '] ' ..
+      'Finished ' ..
+      'epoch = ' .. info.epoch ..
+      ', ' ..
+      'batch = ' .. info.batch ..
+      ', ' ..
+      'with ' ..
+      'loss = ' .. info.loss ..
+      '.\n'
+end
+
+local function communicate(info, logfile, skiplog, silent, printstep)
+   if not skiplog then
+      logfile:write(makelog(info))
+   end
+   if (not silent) and (info.batch % printstep == 0) then
+      io.stdout:write(makemsg(info))
+   end
+end
+
 -- 2. Exports
 
 return {
@@ -83,4 +113,5 @@ return {
    eval_string = eval_string,
    load_data = load_data,
    make_validation = make_validation,
+   communicate = communicate,
 }

@@ -1,4 +1,5 @@
 local nn = require 'nn'
+local optim = require 'optim'
 
 -- 1. Net
 local net = nn.Sequential()
@@ -19,8 +20,12 @@ net:add(nn.LogSoftMax())
 -- 2. Criterion
 local criterion = nn.ClassNLLCriterion()
 
+-- 3. Confusion matrix
+local confusion = optim.ConfusionMatrix(10, torch.range(1, 10))
+
 -- 3. Exports
 return {
    net = net,
    criterion = criterion,
+   confusion = confusion,
 }
