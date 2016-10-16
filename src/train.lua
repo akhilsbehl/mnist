@@ -20,7 +20,7 @@ cmd:option('--help', false, 'Print this help message.')
 cmd:option('--cuda', false, 'Use CUDA?')
 cmd:option('--dataset', 'mnist', 'Dataset to load.')
 cmd:option('--modelpath', 'mnist.lua', 'Lua file to load the model from.')
-cmd:option('--epochs', 100, 'Number of epochs to run training for.')
+cmd:option('--epochs', 10, 'Number of epochs to run training for.')
 cmd:option('--kfolds', 5, 'Proportion of train to use for validation.')
 cmd:option('--batchsize', 100, 'Number of instances in an SGD mini batch.')
 cmd:option('--optparams', '{}', 'Params to be passed on to the optimizer.')
@@ -32,12 +32,27 @@ cmd:text()
 options = cmd:parse(arg or {})
 
 if options.help then
-   require 'os'
    table.print(options)
    os.exit()
 end
 
 assert(options.kfolds > 1)
+
+-- Needed for logging, so let's deal with this first.
+local optim_state = utils.eval_literal(options.optparams)
+if not options.skiplog then
+   local logpath = '../logs/'      ..
+      options.dataset .. '-'       ..
+      os.date('%Y-%m-%d-%H-%M-%S') ..
+      '.log'
+   logfile = assert(io.open(logpath, 'w'))
+   for param, value in pairs(options) do
+      logfile:write('# ' .. param .. '=' .. tostring(value) .. '\n')
+   end
+   for param, value in pairs(optim_state) do
+      logfile:write('# ' .. param .. '=' .. tostring(value) .. '\n')
+   end
+end
 
 if options.cuda then
   require 'cunn'
@@ -67,10 +82,8 @@ dataset_size = dataset['labels']:size(1)
 -- 3. The training
 
 local params, grad_params = net:getParameters()
-local optim_state = utils.eval_string(options.optparams)
-
-local validation_size = math.floor(dataset_size * options.valprop)
-local train_size = dataset_size - validation_size
+local validation_size, train_size =
+   utils.size_validation(dataset_size, 1 / options.kfolds)
 local batch_size = options.batchsize
 
 assert(train_size % batch_size == 0)
@@ -80,35 +93,17 @@ assert(dataset_size % options.kfolds == 0)
 local train_batches = train_size / batch_size
 local validation_batches = validation_size / batch_size
 
-local batch_records_storage = dataset['records']:size()
-batch_records_storage[1] = batch_size
-local batch_records = localize(torch.Tensor(batch_records_storage))
+local batch_records = localize(
+   utils.make_batch_container(
+      dataset['records'], batch_size))
+local batch_labels = localize(
+   utils.make_batch_container(
+      dataset['labels'], batch_size))
 
-local batch_labels_storage = dataset['labels']:size()
-batch_labels_storage[1] = batch_size
-local batch_labels = localize(torch.Tensor(batch_labels_storage))
-
-local shuffle = torch.randperm(dataset_size)
-local fold_size = dataset_size / options.kfolds
-local fold_indices = {}
-for k = 1, options.kfolds do
-   offset = (k - 1) * fold_size
-   fold_indices[k] = shuffle[{ {offset + 1, offset + fold_size} }]
-end
-
-if not options.skiplog then
-   local logpath = '../logs/'      ..
-      options.dataset .. '-'       ..
-      os.date('%Y-%m-%d-%H-%M-%S') ..
-      '.log'
-   logfile = assert(io.open(logpath, 'w'))
-   for param, value in pairs(options) do
-      logfile:write('# ' .. param .. '=' .. tostring(value) .. '\n')
-   end
-   for param, value in pairs(optim_state) do
-      logfile:write('# ' .. param .. '=' .. tostring(value) .. '\n')
-   end
-end
+local fold_indices = localize(
+   utils.compute_fold_indices(
+      dataset, options.kfolds, 'shuffle'),
+   'iterate')
 
 for k = 1, options.kfolds do
    local train, validation = utils.kth_fold(dataset, fold_indices, k)
@@ -126,6 +121,7 @@ for k = 1, options.kfolds do
             net:backward(batch_records, nabla_loss)
             local info = {
                timestamp = os.date('%Y-%m-%d %H:%M:%S'),
+               fold = k,
                epoch = epoch,
                batch = batch,
                loss = batch_loss,
@@ -148,10 +144,12 @@ for k = 1, options.kfolds do
       end
       confusion:updateValids()
 
-      print('Total accuracy of classifier at completion of epoch ' .. epoch ..
-               ' = ' .. confusion.averageValid * 100 .. '.')
-      print('Mean accuracy across classes at completion of epoch ' .. epoch ..
-               ' = ' .. confusion.totalValid * 100 .. '.')
+      print('Total accuracy of classifier at completion of fold ' .. k ..
+               ', epoch ' .. epoch .. ' = ' ..
+               confusion.averageValid * 100 .. '.')
+      print('Mean accuracy across classes at completion of fold ' .. k ..
+               ', epoch ' .. epoch .. ' = ' ..
+               confusion.totalValid * 100 .. '.')
 
    end
 
