@@ -1,3 +1,4 @@
+require('mobdebug').start()
 require 'optim'
 utils = require 'utils'
 
@@ -20,7 +21,8 @@ cmd:option('--help', false, 'Print this help message.')
 cmd:option('--cuda', false, 'Use CUDA?')
 cmd:option('--dataset', 'mnist', 'Dataset to load.')
 cmd:option('--modelpath', 'mnist.lua', 'Lua file to load the model from.')
-cmd:option('--epochs', 10, 'Number of epochs to run training for.')
+cmd:option('--maxepochs', 100, 'Maximum number of epochs to run training for.')
+cmd:option('--earlystop', 10, 'Number of unimproved epochs to stop after.')
 cmd:option('--kfolds', 5, 'Proportion of train to use for validation.')
 cmd:option('--batchsize', 100, 'Number of instances in an SGD mini batch.')
 cmd:option('--optparams', '{}', 'Params to be passed on to the optimizer.')
@@ -106,8 +108,22 @@ local fold_indices = localize(
    'iterate')
 
 for k = 1, options.kfolds do
+
+   -- Reinitalize the network per fold. Remember to deal with this
+   -- when changing init schemes.
+   for i, _ in ipairs(net.modules) do
+      net.modules[i]:reset()
+   end
+
    local train, validation = utils.kth_fold(dataset, fold_indices, k)
-   for epoch = 1, options.epochs do
+
+   local best_iter = {
+      stop_after = options.earlystop,
+      epoch = 0,
+      accuracy = 0,
+   }
+
+   for epoch = 1, options.maxepochs do
 
       for batch = 1, train_batches do
          local o = (batch - 1) * batch_size  -- o := batch offset
@@ -143,13 +159,25 @@ for k = 1, options.kfolds do
          confusion:batchAdd(batch_estimates, batch_labels)
       end
       confusion:updateValids()
-
       print('Total accuracy of classifier at completion of fold ' .. k ..
                ', epoch ' .. epoch .. ' = ' ..
-               confusion.averageValid * 100 .. '.')
+               confusion.totalValid * 100 .. '.')
       print('Mean accuracy across classes at completion of fold ' .. k ..
                ', epoch ' .. epoch .. ' = ' ..
-               confusion.totalValid * 100 .. '.')
+               confusion.averageValid * 100 .. '.')
+      if confusion.totalValid > best_iter.accuracy then
+         best_iter.stop_after = options.earlystop
+         best_iter.epoch = epoch
+         best_iter.accuracy = confusion.totalValid
+         print('Best model so far. Saving to disk.')
+         -- torch.save(utils.make_model_save_path(), net)
+      else
+         best_iter.stop_after = best_iter.stop_after - 1
+         if best_iter.stop_after == 0 then
+            print('Stopping early at epoch ' .. epoch .. '!')
+            break
+         end
+      end
 
    end
 
