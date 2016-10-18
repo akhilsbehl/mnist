@@ -1,5 +1,5 @@
 -- require('mobdebug').start()
-require 'optim'
+local optim = require 'optim'
 local colors = require 'term.colors'
 local utils = require 'utils'
 
@@ -181,9 +181,12 @@ for k = 1, options.kfolds do
          best_iter.stop_after = best_iter.stop_after - 1
          if best_iter.stop_after == 0 then
             msg = 'Stopping early at epoch ' .. epoch .. '!'
-            print(colors.bright (colors.red (msg)))
             break
+         else
+            msg = 'Counting down to early stop after ' ..
+               best_iter.stop_after .. 'epochs.'
          end
+        print(colors.bright (colors.red (msg)))
       end
 
    end
