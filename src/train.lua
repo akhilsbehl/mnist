@@ -1,6 +1,5 @@
 -- require('mobdebug').start()
 local optim = require 'optim'
-local colors = require 'term.colors'
 local utils = require 'utils'
 
 --[[
@@ -14,23 +13,30 @@ TODO:
 
 cmd = torch.CmdLine()
 cmd:text()
-cmd:text('Usage: th train.lua --cuda true --batchsize 1000')
-cmd:text('Options:')
-cmd:option('--help', false, 'Print this help message.')
-cmd:option('--cuda', false, 'Use CUDA?')
-cmd:option('--dataset', 'mnist', 'Dataset to load.')
-cmd:option('--modelpath', 'mnist.lua', 'Lua file to load the model from.')
-cmd:option('--maxepochs', 100, 'Maximum number of epochs to run training for.')
-cmd:option('--earlystop', 10, 'Number of unimproved epochs to stop after.')
-cmd:option('--kfolds', 5, 'Proportion of train to use for validation.')
-cmd:option('--batchsize', 100, 'Number of instances in an SGD mini batch.')
-cmd:option('--optparams', '{}', 'Params to be passed on to the optimizer.')
-cmd:option('--silent', false, 'Suppress logging to stdout?')
-cmd:option('--printstep', 1, 'Print output every step batches.')
-cmd:option('--skiplog', false, 'Avoid logging the run?')
+cmd:text('Usage: th train.lua --cuda --batchsize 1000')
 cmd:text()
+cmd:text('Options:')
+cmd:text()
+cmd:text('Utilities:')
+cmd:option('--cuda', false, 'Use CUDA?')
+cmd:option('--help', false, 'Print this help message.')
+cmd:option('--printstep', 1, 'Print output every step batches.')
+cmd:option('--silent', false, 'Suppress logging to stdout?')
+cmd:text('Problem selection:')
+cmd:option('--dataset', 'mnist', 'Dataset to load.')
+cmd:option('--model', './mnist.lua', 'Lua file to load the model from.')
+cmd:text('Model hyper-parameters:')
+cmd:option('--batchsize', 100, 'Number of instances in an SGD mini batch.')
+cmd:option('--earlystop', 10, 'Number of unimproved epochs to stop after.')
+cmd:option('--maxepochs', 100, 'Maximum number of epochs to run training for.')
+cmd:text('Optimizer parameters:')
+cmd:option('--optparams', '{}', 'Params to be passed on to the optimizer.')
+cmd:text('Cross-validation:')
+cmd:option('--kfolds', 5, 'Proportion of train to use for validation.')
+cmd:text()
+cmd:silent()
 
-options = cmd:parse(arg or {})
+local options = cmd:parse(arg or {})
 
 if options.help then
    table.print(options)
@@ -38,22 +44,6 @@ if options.help then
 end
 
 assert(options.kfolds > 1)
-
--- Needed for logging, so let's deal with this first.
-local optim_state = utils.eval_literal(options.optparams)
-if not options.skiplog then
-   local logpath = '../logs/'      ..
-      options.dataset .. '-'       ..
-      os.date('%Y-%m-%d-%H-%M-%S') ..
-      '.log'
-   logfile = assert(io.open(logpath, 'w'))
-   for param, value in pairs(options) do
-      logfile:write('# ' .. param .. '=' .. tostring(value) .. '\n')
-   end
-   for param, value in pairs(optim_state) do
-      logfile:write('# ' .. param .. '=' .. tostring(value) .. '\n')
-   end
-end
 
 if options.cuda then
   require 'cunn'
@@ -70,7 +60,7 @@ local function localize (this, iterate)
 end
 
 -- 1. The net
-local model = dofile(options.modelpath)
+local model = dofile(options.model)
 local net = localize(model.net)
 local criterion = localize(model.criterion)
 local confusion = localize(model.confusion)
@@ -106,6 +96,20 @@ local fold_indices = localize(
       dataset, options.kfolds, 'shuffle'),
    'iterate')
 
+-- Make sure that any string literals which are a set of params are
+-- evaluated before cat_options is called.
+options.optparams = utils.eval_literal(options.optparams)
+local iterdir = '../data/iters/' ..
+   utils.cat_options(options) ..
+   ',' .. os.date('%Y-%m-%d-%H:%M:%S')
+paths.mkdir(iterdir)
+
+local info = {
+   iterdir = iterdir,
+   train_log = io.open(iterdir .. '/training-loss.csv', 'w'),
+   options = options,
+}
+
 for k = 1, options.kfolds do
 
    -- Reinitalize the network per fold. Remember to deal with this
@@ -124,29 +128,28 @@ for k = 1, options.kfolds do
 
    for epoch = 1, options.maxepochs do
 
+      -- With validation_ratio = 0, essentially shuffles the data.
+      local shuffled, _ = utils.make_validation(train, 0)
+
       for batch = 1, train_batches do
          local o = (batch - 1) * batch_size  -- o := batch offset
-         batch_labels:copy(train['labels'][{ {o + 1, o + batch_size} }])
-         batch_records:copy(train['records'][{ {o + 1, o + batch_size} }])
+         batch_labels:copy(shuffled['labels'][{ {o + 1, o + batch_size} }])
+         batch_records:copy(shuffled['records'][{ {o + 1, o + batch_size} }])
          local function learn_batch(params)
             grad_params:zero()
             local batch_estimates = net:forward(batch_records)
             local batch_loss = criterion:forward(batch_estimates, batch_labels)
             local nabla_loss = criterion:backward(batch_estimates, batch_labels)
             net:backward(batch_records, nabla_loss)
-            local info = {
-               timestamp = os.date('%Y-%m-%d %H:%M:%S'),
-               fold = k,
-               epoch = epoch,
-               batch = batch,
-               loss = batch_loss,
-            }
-            utils.communicate(
-               info, logfile, options.skiplog,
-               options.silent, options.printstep)
+            info.timestamp = os.date('%Y-%m-%d %H:%M:%S')
+            info.fold = k
+            info.epoch = epoch
+            info.batch = batch
+            info.loss = batch_loss
+            utils.communicate(info)
             return batch_loss, grad_params
          end
-         optim.sgd(learn_batch, params, optim_state)
+         optim.sgd(learn_batch, params, options.optparams)
       end
 
       confusion:zero()
@@ -159,35 +162,8 @@ for k = 1, options.kfolds do
          confusion:batchAdd(estimated_labels, batch_labels)
       end
       confusion:updateValids()
-
-      local msg = 'Total accuracy of classifier at completion of fold '
-         .. k .. ', epoch ' .. epoch .. ' = ' ..
-         confusion.totalValid * 100 .. '.'
-      print(colors.bright (colors.blue (msg)))
-
-      msg = 'Mean accuracy across classes at completion of fold '
-         .. k .. ', epoch ' .. epoch .. ' = ' ..
-         confusion.averageValid * 100 .. '.'
-      print(colors.bright (colors.blue (msg)))
-
-      if confusion.totalValid > best_iter.accuracy then
-         best_iter.stop_after = options.earlystop
-         best_iter.epoch = epoch
-         best_iter.accuracy = confusion.totalValid
-         msg = 'Best epoch so far. Saving model to disk.'
-         print(colors.bright (colors.green (msg)))
-         -- torch.save(utils.make_model_save_path(), net)
-      else
-         best_iter.stop_after = best_iter.stop_after - 1
-         if best_iter.stop_after == 0 then
-            msg = 'Stopping early at epoch ' .. epoch .. '!'
-            break
-         else
-            msg = 'Counting down to early stop after ' ..
-               best_iter.stop_after .. 'epochs.'
-         end
-        print(colors.bright (colors.red (msg)))
-      end
+      decision, best_iter = utils.stop_early(info, confusion, best_iter)
+      if decision then break end
 
    end
 
