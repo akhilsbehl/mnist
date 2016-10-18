@@ -1,6 +1,7 @@
 -- require('mobdebug').start()
 require 'optim'
-utils = require 'utils'
+local colors = require 'term.colors'
+local utils = require 'utils'
 
 --[[
 
@@ -158,22 +159,29 @@ for k = 1, options.kfolds do
          confusion:batchAdd(estimated_labels, batch_labels)
       end
       confusion:updateValids()
-      print('Total accuracy of classifier at completion of fold ' .. k ..
-               ', epoch ' .. epoch .. ' = ' ..
-               confusion.totalValid * 100 .. '.')
-      print('Mean accuracy across classes at completion of fold ' .. k ..
-               ', epoch ' .. epoch .. ' = ' ..
-               confusion.averageValid * 100 .. '.')
+
+      local msg = 'Total accuracy of classifier at completion of fold '
+         .. k .. ', epoch ' .. epoch .. ' = ' ..
+         confusion.totalValid * 100 .. '.'
+      print(colors.bright (colors.blue (msg)))
+
+      msg = 'Mean accuracy across classes at completion of fold '
+         .. k .. ', epoch ' .. epoch .. ' = ' ..
+         confusion.averageValid * 100 .. '.'
+      print(colors.bright (colors.blue (msg)))
+
       if confusion.totalValid > best_iter.accuracy then
          best_iter.stop_after = options.earlystop
          best_iter.epoch = epoch
          best_iter.accuracy = confusion.totalValid
-         print('Best model so far. Saving to disk.')
+         msg = 'Best epoch so far. Saving model to disk.'
+         print(colors.bright (colors.green (msg)))
          -- torch.save(utils.make_model_save_path(), net)
       else
          best_iter.stop_after = best_iter.stop_after - 1
          if best_iter.stop_after == 0 then
-            print('Stopping early at epoch ' .. epoch .. '!')
+            msg = 'Stopping early at epoch ' .. epoch .. '!'
+            print(colors.bright (colors.red (msg)))
             break
          end
       end

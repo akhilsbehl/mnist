@@ -1,3 +1,5 @@
+local colors = require 'term.colors'
+
 -- 1. Definitions
 
 local function tablep (this)
@@ -99,7 +101,7 @@ local function makemsg(info)
       ', ' ..
       'with ' ..
       'loss = ' .. info.loss ..
-      '.\n'
+      '.'
 end
 
 local function communicate(info, logfile, skiplog, silent, printstep)
@@ -109,7 +111,7 @@ local function communicate(info, logfile, skiplog, silent, printstep)
    if (not silent) then
       if printstep == 1 or
       (printstep > 1 and info.batch % printstep == 1) then
-         io.stdout:write(makemsg(info))
+         print(colors.dim (makemsg(info)))
       end
    end
 end
