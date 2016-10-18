@@ -129,7 +129,7 @@ end
 
 local function communicate(info)
    info.train_log:write(makelog(info))
-   if (not info.options.silent) then
+   if (not info.options.quieter) then
       if info.options.printstep == 1 or
          (info.options.printstep > 1 and
           info.batch % info.options.printstep == 1) then
@@ -222,7 +222,7 @@ local function cat_options(options)
       cuda = true,
       help = true,
       printstep = true,
-      silent = true,
+      quieter = true,
       dataset = false,
       model = false,
       batchsize = false,
