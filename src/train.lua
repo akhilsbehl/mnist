@@ -49,15 +49,7 @@ if options.cuda then
   require 'cunn'
 end
 
-local function localize (this, iterate)
-   if options.cuda then
-      return (iterate and utils.tablep(this)) and
-         utils.map(utils.cudafy, this) or
-         utils.cudafy(this)
-   else
-      return this
-   end
-end
+local localize = utils.localizer(options.cuda)
 
 -- 1. The net
 local model = dofile(options.model)

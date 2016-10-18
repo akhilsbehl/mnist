@@ -24,6 +24,20 @@ local function map (fun, over)
    return mapped
 end
 
+local function localizer(cuda)
+   -- close over `cuda`
+   return function (this, iterate)
+      if cuda then
+         return
+            (iterate and tablep(this)) and
+            map(cudafy, this) or
+            cudafy(this)
+      else
+         return this
+      end
+   end
+end
+
 -- Use with caution!
 local function eval_literal(s)
    return loadstring('return ' .. s)()
@@ -247,6 +261,7 @@ return {
    kth_fold = kth_fold,
    kth_fold_indices = kth_fold_indices,
    load_data = load_data,
+   localizer = localizer,
    make_batch_container = make_batch_container,
    make_validation = make_validation,
    map = map,
