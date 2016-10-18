@@ -1,4 +1,4 @@
-require('mobdebug').start()
+-- require('mobdebug').start()
 require 'optim'
 utils = require 'utils'
 
@@ -6,10 +6,8 @@ utils = require 'utils'
 
 TODO:
    1. Weight initialization
-   2. Early stopping
-   3. Dropout
-   4. Cross validation
-   5. Layer tweaking
+   2. Dropout
+   3. Layer tweaking
 
 --]]
 
@@ -156,7 +154,8 @@ for k = 1, options.kfolds do
          batch_labels:copy(validation['labels'][{ {o + 1, o + batch_size} }])
          batch_records:copy(validation['records'][{ {o + 1, o + batch_size} }])
          local batch_estimates = net:forward(batch_records)
-         confusion:batchAdd(batch_estimates, batch_labels)
+         local _, estimated_labels = torch.max(batch_estimates, 2)
+         confusion:batchAdd(estimated_labels, batch_labels)
       end
       confusion:updateValids()
       print('Total accuracy of classifier at completion of fold ' .. k ..

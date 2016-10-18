@@ -15,6 +15,7 @@ net:add(nn.SpatialMaxPooling(2, 2, 2, 2))
 net:add(nn.Reshape(400))
 net:add(nn.Linear(400, 100))
 
+net:add(nn.Linear(100, 10))
 net:add(nn.LogSoftMax())
 
 -- 2. Criterion
