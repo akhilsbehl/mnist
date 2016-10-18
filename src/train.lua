@@ -6,8 +6,6 @@ local utils = require 'utils'
 
 TODO:
    1. Weight initialization
-   2. Dropout
-   3. Layer tweaking
 
 --]]
 
@@ -122,6 +120,8 @@ for k = 1, options.kfolds do
 
       -- With validation_ratio = 0, essentially shuffles the data.
       local shuffled, _ = utils.make_validation(train, 0)
+      -- Adjust any dropout or batch-norm modules to training mode.
+      net:training()
 
       for batch = 1, train_batches do
          local o = (batch - 1) * batch_size  -- o := batch offset
@@ -144,6 +144,8 @@ for k = 1, options.kfolds do
          optim.sgd(learn_batch, params, options.optparams)
       end
 
+      -- Adjust any dropout or batch-norm modules to training mode.
+      net:evaluate()
       confusion:zero()
       for batch = 1, validation_batches do
          local o = (batch - 1) * batch_size  -- o := batch offset
