@@ -30,7 +30,7 @@ cmd:option('--maxepochs', 64, 'Maximum number of epochs to run training for.')
 cmd:text('Optimizer parameters:')
 cmd:option('--optparams', '{}', 'Params to be passed on to the optimizer.')
 cmd:text('Cross-validation:')
-cmd:option('--kfolds', 5, 'Proportion of train to use for validation.')
+cmd:option('--kfolds', 5, 'Number of folds to use for k-fold CV.')
 cmd:text()
 
 local options = cmd:parse(arg or {})
