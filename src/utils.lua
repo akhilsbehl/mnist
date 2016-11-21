@@ -150,6 +150,7 @@ local function compute_fold_indices(dataset, kfolds, shuffle)
    local indices = shuffle and
       torch.randperm(dataset_size) or
       torch.range(1, dataset_size)
+   indices = indices:long()
    local fold_size = dataset_size / kfolds
    local fold_indices = {}
    for k = 1, kfolds do
@@ -255,17 +256,12 @@ return {
    cat_options = cat_options,
    communicate = communicate,
    compute_fold_indices = compute_fold_indices,
-   cudablep = cudablep,
-   cudafy = cudafy,
    eval_literal = eval_literal,
    kth_fold = kth_fold,
-   kth_fold_indices = kth_fold_indices,
    load_data = load_data,
    localizer = localizer,
    make_batch_container = make_batch_container,
    make_validation = make_validation,
-   map = map,
    size_validation = size_validation,
    stop_early = stop_early,
-   tablep = tablep,
 }
